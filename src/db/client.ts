@@ -2,18 +2,32 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
 
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  throw new Error("DATABASE_URL is not set. See .env.local");
-}
+type Db = ReturnType<typeof drizzle<typeof schema>>;
 
-// Next dev reloads modules on every edit; without caching the client on
-// globalThis each reload would open a new pool and exhaust connections.
+// Next dev reloads modules on every edit; without caching on globalThis each
+// reload would open a new pool and exhaust connections.
 const globalForDb = globalThis as unknown as {
   sql?: ReturnType<typeof postgres>;
+  db?: Db;
 };
 
-const sql = globalForDb.sql ?? postgres(connectionString, { max: 5 });
-if (process.env.NODE_ENV !== "production") globalForDb.sql = sql;
+function createDb(): Db {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is not set. See .env.local");
+  }
+  const sql = globalForDb.sql ?? postgres(connectionString, { max: 5 });
+  if (process.env.NODE_ENV !== "production") globalForDb.sql = sql;
+  return drizzle(sql, { schema });
+}
 
-export const db = drizzle(sql, { schema });
+// Lazy: Next.js evaluates route modules at build time to collect page data,
+// which would throw on a missing DATABASE_URL before any request is served.
+// Deferring construction to first actual query keeps a misconfigured env
+// from failing the build itself.
+export const db: Db = new Proxy({} as Db, {
+  get(_target, prop, receiver) {
+    if (!globalForDb.db) globalForDb.db = createDb();
+    return Reflect.get(globalForDb.db, prop, receiver);
+  },
+});
