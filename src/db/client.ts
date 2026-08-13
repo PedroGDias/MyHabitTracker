@@ -16,7 +16,11 @@ function createDb(): Db {
   if (!connectionString) {
     throw new Error("DATABASE_URL is not set. See .env.local");
   }
-  const sql = globalForDb.sql ?? postgres(connectionString, { max: 5 });
+  // `prepare: false` because Supabase's connection pooler (Supavisor, used
+  // in production for IPv4 reach and serverless-friendly short connections)
+  // runs in transaction mode, which doesn't support session-level prepared
+  // statements. Harmless against a direct/local connection too.
+  const sql = globalForDb.sql ?? postgres(connectionString, { max: 5, prepare: false });
   if (process.env.NODE_ENV !== "production") globalForDb.sql = sql;
   return drizzle(sql, { schema });
 }
