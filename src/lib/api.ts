@@ -14,7 +14,19 @@ export interface HabitsResponse {
 }
 
 async function json<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error((await res.json()).error ?? res.statusText);
+  if (!res.ok) {
+    // A crashed serverless function can return an HTML error page rather
+    // than JSON; parsing that as JSON would hide the real error behind a
+    // confusing "Unexpected end of JSON input".
+    const body = await res.text();
+    let message = body;
+    try {
+      message = JSON.parse(body).error ?? body;
+    } catch {
+      // not JSON -- fall through to the raw text
+    }
+    throw new Error(message || `${res.status} ${res.statusText}`);
+  }
   return res.json();
 }
 
